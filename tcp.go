@@ -8,7 +8,7 @@ import (
 )
 
 func init() {
-	modules.Register("k6/x/tcp-throttle", new(TCP))
+	modules.Register("k6/x/tcp-throttling", new(TCP))
 }
 
 type TCP struct{}

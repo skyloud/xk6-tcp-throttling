@@ -12,13 +12,13 @@ K6 extension for TCP connections with bandwidth throttling and ACK delay control
 ## Installation
 
 ```bash
-xk6 build --with github.com/skyloud/xk6-tcp-throttle
+xk6 build --with github.com/skyloud/xk6-tcp-throttling
 ```
 
 ## Usage
 
 ```javascript
-import tcpThrottle from 'k6/x/tcp-throttle';
+import tcpThrottle from 'k6/x/tcp-throttling';
 
 export default function() {
   const conn = tcpThrottle.connect('server:80');
