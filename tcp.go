@@ -1,4 +1,4 @@
-package tcp
+package tcp-throttling
 
 import (
 	"net"
