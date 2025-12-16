@@ -1,0 +1,20 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+
+  k6-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.k6
+    depends_on:
+      - server
+    volumes:
+      - ./test-results:/results
+    environment:
+      - SERVER_URL=http://server:8080
