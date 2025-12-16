@@ -1,4 +1,4 @@
-module github.com/skyloud/xk6-tcp-throttle
+module github.com/skyloud/xk6-tcp-throttling
 
 go 1.21
 
