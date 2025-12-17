@@ -34,6 +34,13 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
+	// Forcer le flush pour s'assurer que les données sont envoyées
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+	
+	// Mesurer jusqu'à la fin de la requête (quand le client a tout reçu)
+	// La connexion HTTP se ferme après cette fonction
 	totalBytesSent += int64(n)
 	duration := time.Since(start)
 	throughput := float64(n) / duration.Seconds() / 1024 / 1024

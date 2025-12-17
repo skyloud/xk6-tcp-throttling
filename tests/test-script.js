@@ -28,22 +28,39 @@ export default function() {
     conn.setBandwidthLimit(500 * 1024);
     
     // Envoie requête HTTP basique
-    conn.write('GET /test?size=1048576 HTTP/1.1\r\nHost: server\r\n\r\n');
+    conn.write('GET /test?size=1048576 HTTP/1.1\r\nHost: server\r\nConnection: close\r\n\r\n');
     
     let totalReceived = 0;
+    let payloadReceived = 0;
     let startRead = Date.now();
+    let inBody = false;
     
-    // Lit la réponse avec throttling
-    while (totalReceived < 1048576) {
+    // Lit toute la réponse avec throttling (headers + body)
+    while (true) {
       let data = conn.readWithThrottle(8192);
+      if (data.length === 0) break;
+      
       totalReceived += data.length;
+      
+      // Compter seulement le payload après les headers
+      if (!inBody) {
+        let dataStr = String.fromCharCode.apply(null, data);
+        let bodyStart = dataStr.indexOf('\r\n\r\n');
+        if (bodyStart !== -1) {
+          inBody = true;
+          payloadReceived += data.length - (bodyStart + 4);
+        }
+      } else {
+        payloadReceived += data.length;
+      }
+      
       totalBytesReceived += data.length;
     }
     
     let duration = (Date.now() - startRead) / 1000;
-    let throughput = (totalReceived / duration) / 1024 / 1024;
+    let throughput = (payloadReceived / duration) / 1024 / 1024;
     
-    console.log(`TCP Throttled: ${totalReceived} bytes in ${duration}s (${throughput.toFixed(2)} MB/s)`);
+    console.log(`TCP Throttled: ${payloadReceived} bytes payload (${totalReceived} total) in ${duration}s (${throughput.toFixed(2)} MB/s)`);
     
     conn.close();
   } catch (e) {
