@@ -1,6 +1,7 @@
 package tcp
 
 import (
+	"io"
 	"net"
 	"syscall"
 	"time"
@@ -72,6 +73,9 @@ func (c *Connection) ReadWithThrottle(size int) []byte {
 		
 		n, err := c.conn.Read(buffer[totalRead:totalRead+chunkSize])
 		if err != nil {
+			if err == io.EOF {
+				break
+			}
 			if totalRead > 0 {
 				break
 			}
