@@ -1,34 +1,50 @@
-import http from 'k6/http';
 import tcpThrottle from 'k6/x/tcp-throttling';
-import { check } from 'k6';
+import { scenario } from 'k6/execution';
+import http from 'k6/http';
+import { Trend, Counter } from 'k6/metrics';
 
 export let options = {
-  stages: [
-    { duration: '30s', target: 1 },
-    { duration: '60s', target: 3 },
-    { duration: '30s', target: 0 },
-  ],
+  scenarios: {
+    stage1: {
+      executor: 'shared-iterations',
+      vus: 1,
+      iterations: 1,
+      startTime: '0s',
+      env: { BANDWIDTH: '512000', STAGE: 'Stage 1: 500 KB/s', STAGE_ID: '1' },
+    },
+    stage2: {
+      executor: 'shared-iterations',
+      vus: 1,
+      iterations: 1,
+      startTime: '65s',
+      env: { BANDWIDTH: '1048576', STAGE: 'Stage 2: 1 MB/s', STAGE_ID: '2' },
+    },
+    stage3: {
+      executor: 'shared-iterations',
+      vus: 1,
+      iterations: 1,
+      startTime: '100s',
+      env: { BANDWIDTH: '10485760', STAGE: 'Stage 3: 10 MB/s', STAGE_ID: '3' },
+    },
+  },
 };
 
-let totalBytesReceived = 0;
-let startTime = Date.now();
+const PAYLOAD_SIZE = 30 * 1024 * 1024; // 30 MB
+const throughputMetric = new Trend('download_throughput_mbps', true);
+const durationMetric = new Trend('download_duration_s', true);
+const payloadMetric = new Counter('download_payload_mb');
 
 export default function() {
-  // Test HTTP sans throttling
-  let response = http.get(`${__ENV.SERVER_URL}/test?size=1048576`);
-  check(response, {
-    'status is 200': (r) => r.status === 200,
-  });
+  const bandwidth = parseInt(__ENV.BANDWIDTH);
+  const stageName = __ENV.STAGE;
   
-  // Test TCP avec throttling
   try {
     const conn = tcpThrottle.connect('server:8080');
     
-    // Limite à 500KB/s
-    conn.setBandwidthLimit(500 * 1024);
+    conn.setReceiveBuffer(4096);
+    conn.setBandwidthLimit(bandwidth);
     
-    // Envoie requête HTTP basique
-    conn.write('GET /test?size=1048576 HTTP/1.1\r\nHost: server\r\nConnection: close\r\n\r\n');
+    conn.write(`GET /test?size=${PAYLOAD_SIZE} HTTP/1.1\r\nHost: server\r\nConnection: close\r\n\r\n`);
     
     let totalReceived = 0;
     let payloadReceived = 0;
@@ -54,13 +70,25 @@ export default function() {
         payloadReceived += data.length;
       }
       
-      totalBytesReceived += data.length;
+
     }
     
     let duration = (Date.now() - startRead) / 1000;
     let throughput = (payloadReceived / duration) / 1024 / 1024;
+    let payloadMB = payloadReceived / 1024 / 1024;
     
-    console.log(`TCP Throttled: ${payloadReceived} bytes payload (${totalReceived} total) in ${duration}s (${throughput.toFixed(2)} MB/s)`);
+    // Enregistrer les métriques avec tags
+    const tags = { 
+      stage: stageName,
+      stage_id: __ENV.STAGE_ID,
+      bandwidth_limit: (bandwidth / 1024 / 1024).toFixed(2) + ' MB/s'
+    };
+    
+    throughputMetric.add(throughput, tags);
+    durationMetric.add(duration, tags);
+    payloadMetric.add(payloadMB, tags);
+    
+    console.log(`${stageName} - Downloaded ${(payloadReceived / 1024 / 1024).toFixed(2)} MB in ${duration.toFixed(2)}s (${throughput.toFixed(2)} MB/s)`);
     
     conn.close();
   } catch (e) {
@@ -69,20 +97,81 @@ export default function() {
 }
 
 export function handleSummary(data) {
-  let elapsed = (Date.now() - startTime) / 1000;
-  let avgThroughput = (totalBytesReceived / elapsed) / 1024 / 1024;
+  // Extraire les résultats client depuis les métriques
+  const clientResults = [];
   
-  console.log(`\n=== CLIENT METRICS ===`);
-  console.log(`Total bytes received: ${totalBytesReceived}`);
-  console.log(`Test duration: ${elapsed.toFixed(2)}s`);
-  console.log(`Average throughput: ${avgThroughput.toFixed(2)} MB/s`);
+  // K6 stocke les métriques avec tags dans thresholds.values
+  const throughputData = data.metrics.download_throughput_mbps;
+  const durationData = data.metrics.download_duration_s;
+  const payloadData = data.metrics.download_payload_mb;
+  
+  // Collecter tous les tags uniques
+  const stageMap = {};
+  
+  if (throughputData && throughputData.values) {
+    for (const key in throughputData.values) {
+      const value = throughputData.values[key];
+      if (value && value.avg !== undefined) {
+        const stageId = key.split(':')[0] || key;
+        if (!stageMap[stageId]) {
+          stageMap[stageId] = {};
+        }
+        stageMap[stageId].throughput = value.avg;
+      }
+    }
+  }
+  
+  if (durationData && durationData.values) {
+    for (const key in durationData.values) {
+      const value = durationData.values[key];
+      if (value && value.avg !== undefined) {
+        const stageId = key.split(':')[0] || key;
+        if (!stageMap[stageId]) {
+          stageMap[stageId] = {};
+        }
+        stageMap[stageId].duration = value.avg;
+      }
+    }
+  }
+  
+  if (payloadData && payloadData.values) {
+    for (const key in payloadData.values) {
+      const value = payloadData.values[key];
+      if (value && value.count !== undefined) {
+        const stageId = key.split(':')[0] || key;
+        if (!stageMap[stageId]) {
+          stageMap[stageId] = {};
+        }
+        stageMap[stageId].payload = value.count;
+      }
+    }
+  }
+  
+  // Construire les résultats
+  for (const [stageId, values] of Object.entries(stageMap)) {
+    clientResults.push({
+      stage: `Stage ${stageId}`,
+      throughput_mbps: values.throughput?.toFixed(2) || 'N/A',
+      duration_s: values.duration?.toFixed(2) || 'N/A',
+      payload_mb: values.payload?.toFixed(2) || 'N/A'
+    });
+  }
+  
+  // Si aucun résultat via métriques, utiliser les données brutes du summary
+  if (clientResults.length === 0) {
+    console.log('DEBUG: Full data structure:', JSON.stringify(data, null, 2));
+  }
+  
+  // Déclencher la sauvegarde des résultats serveur
+  try {
+    http.get('http://server:8080/save-results');
+  } catch (e) {
+    console.error('Failed to save server results:', e);
+  }
   
   return {
-    '/results/summary.json': JSON.stringify({
-      totalBytesReceived,
-      testDuration: elapsed,
-      avgThroughput,
-      ...data
-    }, null, 2)
+    'stdout': '',
+    '/results/client-results.json': JSON.stringify(clientResults, null, 2),
+    '/results/k6-summary.json': JSON.stringify(data, null, 2)
   };
 }

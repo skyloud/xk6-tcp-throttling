@@ -7,11 +7,13 @@ services:
       - "8080:8080"
     environment:
       - PORT=8080
+    volumes:
+      - ./test-results:/results
 
   k6-client:
     build:
-      context: .
-      dockerfile: Dockerfile.k6
+      context: ..
+      dockerfile: tests/Dockerfile.k6
     depends_on:
       - server
     volumes:

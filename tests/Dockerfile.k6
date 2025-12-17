@@ -4,8 +4,9 @@ RUN apk add --no-cache git
 RUN go install go.k6.io/xk6/cmd/xk6@latest
 
 WORKDIR /build
-COPY . .
-RUN xk6 build --with github.com/skyloud/xk6-tcp-throttling@latest --output k6
+COPY go.mod tcp.go ./
+RUN xk6 build --with xk6-tcp-throttling=. --output k6
+COPY tests/test-script.js ./
 CMD ["./k6", "run", "--out", "json=/results/results.json", "test-script.js"]
 
 # FROM alpine:latest

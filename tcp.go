@@ -60,15 +60,9 @@ func (c *Connection) ReadWithThrottle(size int) []byte {
 	totalRead := 0
 	
 	for totalRead < size {
-		// Lire par petits chunks pour permettre le throttling progressif
 		chunkSize := 4096
 		if size-totalRead < chunkSize {
 			chunkSize = size - totalRead
-		}
-		
-		// Appliquer le throttling AVANT de lire
-		if c.throttler != nil {
-			c.throttler.waitIfNeeded(chunkSize)
 		}
 		
 		n, err := c.conn.Read(buffer[totalRead:totalRead+chunkSize])
@@ -82,13 +76,14 @@ func (c *Connection) ReadWithThrottle(size int) []byte {
 			panic(err)
 		}
 		
-		if c.throttler != nil {
-			c.throttler.recordRead(n)
-		}
-		
 		totalRead += n
 		if n == 0 {
 			break
+		}
+		
+		// Appliquer le throttling APRÈS la lecture
+		if c.throttler != nil {
+			c.throttler.throttle(n)
 		}
 	}
 	
@@ -106,28 +101,25 @@ func (c *Connection) ReadWithDelay(size int, delayMs int) []byte {
 	return buffer[:n]
 }
 
-func (t *BandwidthThrottler) waitIfNeeded(bytesToRead int) {
+func (t *BandwidthThrottler) throttle(bytesRead int) {
 	now := time.Now()
 	elapsed := now.Sub(t.lastRead)
+	t.bytesRead += bytesRead
 	
 	// Reset le compteur chaque seconde
 	if elapsed >= time.Second {
-		t.bytesRead = 0
+		t.bytesRead = bytesRead
 		t.lastRead = now
 		return
 	}
 	
-	// Si on dépasse la limite, attendre
-	if t.bytesRead+bytesToRead > t.bytesPerSecond {
+	// Si on dépasse la limite, attendre jusqu'à la prochaine seconde
+	if t.bytesRead > t.bytesPerSecond {
 		sleepTime := time.Second - elapsed
 		time.Sleep(sleepTime)
 		t.bytesRead = 0
 		t.lastRead = time.Now()
 	}
-}
-
-func (t *BandwidthThrottler) recordRead(bytesRead int) {
-	t.bytesRead += bytesRead
 }
 
 func (c *Connection) Write(data []byte) {
