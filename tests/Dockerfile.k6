@@ -5,13 +5,14 @@ RUN go install go.k6.io/xk6/cmd/xk6@latest
 
 WORKDIR /build
 COPY . .
-RUN xk6 build --with github.com/skyloud/xk6-tcp-throttling
-
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-WORKDIR /app
-COPY --from=builder /build/k6 .
-COPY test-script.js .
-RUN mkdir -p /results
-
+RUN xk6 build --with github.com/skyloud/xk6-tcp-throttling --output k6
 CMD ["./k6", "run", "--out", "json=/results/results.json", "test-script.js"]
+
+# FROM alpine:latest
+# RUN apk --no-cache add ca-certificates
+# WORKDIR /app
+# COPY --from=builder /build/k6 .
+# COPY test-script.js .
+# RUN mkdir -p /results
+
+# CMD ["./k6", "run", "--out", "json=/results/results.json", "test-script.js"]

@@ -1,11 +1,11 @@
 import http from 'k6/http';
-import tcpThrottle from 'k6/x/tcp-throttle';
+import tcpThrottle from 'k6/x/tcp-throttling';
 import { check } from 'k6';
 
 export let options = {
   stages: [
     { duration: '30s', target: 1 },
-    { duration: '60s', target: 1 },
+    { duration: '60s', target: 3 },
     { duration: '30s', target: 0 },
   ],
 };
